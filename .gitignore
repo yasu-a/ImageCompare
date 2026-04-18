@@ -1,0 +1,60 @@
+# Byte-compiled / optimized
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Virtual environments (run_imagecompare.bat uses .venv or venv)
+.venv/
+venv/
+ENV/
+env/
+
+# Packaging / build
+build/
+dist/
+*.egg-info/
+*.egg
+.eggs/
+pip-wheel-metadata/
+
+# Test / coverage
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.nox/
+coverage.xml
+*.cover
+.hypothesis/
+
+# Type checkers / linters (local caches)
+.mypy_cache/
+.ruff_cache/
+.dmypy.json
+dmypy.json
+
+# PyCharm
+.idea/
+
+# VS Code / Cursor (local settings; uncomment if you never commit workspace config)
+# .vscode/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# OS
+.Desktop.ini
+Thumbs.db
+.DS_Store
+
+# Logs & env files
+*.log
+.env
+.env.*
+!.env.example
+
+# PyInstaller
+*.manifest
+*.spec.bak
