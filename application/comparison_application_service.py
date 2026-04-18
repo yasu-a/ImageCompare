@@ -2,7 +2,6 @@ import numpy as np
 
 from application.session_application_service import SessionApplicationService
 from domain.comparison_state import ComparisonState
-from domain.render_mode import RenderMode
 from services import image_ops
 
 
@@ -25,7 +24,6 @@ class ComparisonApplicationService:
         else:
             self._state.selected_variant_id = sess.variants[0].variant_id
         self._state.manual_offset_xy = (0, 0)
-        self._state.render_mode = RenderMode.default()
         self._state.best_match_xy = None
         self._state.last_match_message = ""
         self.recompute_match()
@@ -34,9 +32,6 @@ class ComparisonApplicationService:
         self._state.selected_variant_id = variant_id
         self._state.manual_offset_xy = (0, 0)
         self.recompute_match()
-
-    def set_render_mode(self, mode: RenderMode) -> None:
-        self._state.render_mode = mode
 
     def nudge_offset(self, dx: int, dy: int) -> None:
         self._state.nudge(dx, dy)
@@ -93,6 +88,5 @@ class ComparisonApplicationService:
             v.image_bgr,
             best,
             self._state.manual_offset_xy,
-            self._state.render_mode,
         )
         return out, msg

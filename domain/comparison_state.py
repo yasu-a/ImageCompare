@@ -1,6 +1,4 @@
-from dataclasses import dataclass, field
-
-from domain.render_mode import RenderMode
+from dataclasses import dataclass
 
 
 @dataclass
@@ -8,7 +6,6 @@ class ComparisonState:
     """ランタイムのみ保持する比較表示状態。"""
 
     selected_variant_id: str | None = None
-    render_mode: RenderMode = field(default_factory=RenderMode.default)
     manual_offset_xy: tuple[int, int] = (0, 0)
     best_match_xy: tuple[int, int] | None = None
     last_match_message: str = ""

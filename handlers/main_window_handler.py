@@ -8,7 +8,6 @@ from PyQt6.QtWidgets import QApplication
 
 from application.comparison_application_service import ComparisonApplicationService
 from application.session_application_service import SessionApplicationService
-from domain.render_mode import RenderMode
 from handlers.preview_handler import PreviewHandler
 from handlers.session_handler import SessionHandler
 from handlers.variant_handler import VariantHandler
@@ -58,10 +57,6 @@ class MainWindowHandler:
         )
 
     def wire(self) -> None:
-        for rm in RenderMode:
-            self._win.render_mode_combo.addItem(rm.label_ja(), rm)
-        self._win.render_mode_combo.currentIndexChanged.connect(self._on_render_mode)
-
         self._session_h.bind()
         self._variant_h.bind()
         self._preview_h.bind()
@@ -118,14 +113,6 @@ class MainWindowHandler:
         self._clear_undo_memory()
         self._active_slot = None
         self._comparison.reset_for_session_switch()
-
-    def _on_render_mode(self, idx: int) -> None:
-        if idx < 0:
-            return
-        m = self._win.render_mode_combo.itemData(idx, Qt.ItemDataRole.UserRole)
-        if isinstance(m, RenderMode):
-            self._comparison.set_render_mode(m)
-            self.refresh_all()
 
     def _require_session(self) -> bool:
         if self._session_svc.current_session() is None:
@@ -343,7 +330,6 @@ class MainWindowHandler:
         self._win.variant_toolbar.setEnabled(has_sess)
         self._win.base_panel.setEnabled(has_sess)
         self._win.variant_panel.setEnabled(has_sess)
-        self._win.render_mode_combo.setEnabled(has_sess)
 
         vcb = self._win.variant_toolbar.variant_combo
         vcb.blockSignals(True)
@@ -382,16 +368,6 @@ class MainWindowHandler:
                 )
             else:
                 self._win.variant_panel.set_numpy_bgr(None)
-
-        rmc = self._win.render_mode_combo
-        rmc.blockSignals(True)
-        rm = st.render_mode
-        for i in range(rmc.count()):
-            m = rmc.itemData(i, Qt.ItemDataRole.UserRole)
-            if m == rm:
-                rmc.setCurrentIndex(i)
-                break
-        rmc.blockSignals(False)
 
         arr, msg = self._comparison.preview_tuple()
         if arr is not None:

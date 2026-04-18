@@ -1,6 +1,5 @@
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
-    QComboBox,
     QFrame,
     QLabel,
     QMainWindow,
@@ -14,6 +13,19 @@ from views.composite_preview_panel import CompositePreviewPanel
 from views.paste_image_panel import PasteImagePanel
 from views.session_toolbar import SessionToolbar
 from views.variant_toolbar import VariantToolbar
+
+_SECTION_FRAME_QSS = (
+    "QFrame {"
+    "  border: 1px solid #b0b0b0;"
+    "  border-radius: 8px;"
+    "  background-color: palette(base);"
+    "}"
+)
+
+
+def _style_section_frame(frame: QFrame) -> None:
+    frame.setFrameShape(QFrame.Shape.NoFrame)
+    frame.setStyleSheet(_SECTION_FRAME_QSS)
 
 
 class MainWindow(QMainWindow):
@@ -41,8 +53,7 @@ class MainWindow(QMainWindow):
         self._left_split.setHandleWidth(5)
 
         frame_base = QFrame()
-        frame_base.setFrameShape(QFrame.Shape.StyledPanel)
-        frame_base.setFrameShadow(QFrame.Shadow.Plain)
+        _style_section_frame(frame_base)
         fb = QVBoxLayout(frame_base)
         fb.setContentsMargins(8, 8, 8, 8)
         title_b = QLabel("基準画像")
@@ -54,8 +65,7 @@ class MainWindow(QMainWindow):
         fb.addWidget(self.base_panel, stretch=1)
 
         frame_cmp = QFrame()
-        frame_cmp.setFrameShape(QFrame.Shape.StyledPanel)
-        frame_cmp.setFrameShadow(QFrame.Shadow.Plain)
+        _style_section_frame(frame_cmp)
         fc = QVBoxLayout(frame_cmp)
         fc.setContentsMargins(8, 8, 8, 8)
         title_c = QLabel("比較画像")
@@ -74,15 +84,12 @@ class MainWindow(QMainWindow):
         self._left_split.setStretchFactor(1, 1)
 
         frame_right = QFrame()
-        frame_right.setFrameShape(QFrame.Shape.StyledPanel)
-        frame_right.setFrameShadow(QFrame.Shadow.Plain)
+        _style_section_frame(frame_right)
         rr = QVBoxLayout(frame_right)
         rr.setContentsMargins(8, 8, 8, 8)
-        title_r = QLabel("表示モード")
+        title_r = QLabel("プレビュー")
         title_r.setStyleSheet("font-weight: bold;")
         rr.addWidget(title_r)
-        self.render_mode_combo = QComboBox()
-        rr.addWidget(self.render_mode_combo)
         self.preview_panel = CompositePreviewPanel()
         rr.addWidget(self.preview_panel, stretch=1)
 

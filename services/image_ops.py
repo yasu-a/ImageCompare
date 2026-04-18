@@ -6,8 +6,6 @@ import cv2
 import numpy as np
 from PyQt6.QtGui import QImage, QPixmap
 
-from domain.render_mode import RenderMode
-
 MARGIN_PX = 50
 DIFF_THRESHOLD = 30
 
@@ -97,29 +95,20 @@ def render_preview(
     template_bgr: np.ndarray,
     best_xy: tuple[int, int],
     offset_xy: tuple[int, int],
-    mode: RenderMode,
     margin: int = MARGIN_PX,
 ) -> tuple[np.ndarray, str]:
+    """50/50 透かし合成し、差分を赤で強調する。"""
     padded = pad_base(base_bgr, margin)
     bx = best_xy[0] + offset_xy[0]
     by = best_xy[1] + offset_xy[1]
     var_layer = build_variant_layer(padded.shape, template_bgr, bx, by)
 
-    msg = ""
-    if mode is RenderMode.OVERLAY_50_50:
-        out = cv2.addWeighted(padded, 0.5, var_layer, 0.5, 0)
-    elif mode is RenderMode.SUBTRACT:
-        out = cv2.subtract(padded, var_layer)
-    elif mode is RenderMode.OVERLAY_DIFF:
-        blend = cv2.addWeighted(padded, 0.5, var_layer, 0.5, 0)
-        g1 = cv2.cvtColor(padded, cv2.COLOR_BGR2GRAY)
-        g2 = cv2.cvtColor(var_layer, cv2.COLOR_BGR2GRAY)
-        mask = (cv2.absdiff(g1, g2) >= DIFF_THRESHOLD) & (var_layer.sum(axis=2) > 0)
-        out = blend.copy()
-        out[mask] = (0, 0, 255)
-    else:
-        out = padded.copy()
-        msg = "不明な表示モード"
+    blend = cv2.addWeighted(padded, 0.5, var_layer, 0.5, 0)
+    g1 = cv2.cvtColor(padded, cv2.COLOR_BGR2GRAY)
+    g2 = cv2.cvtColor(var_layer, cv2.COLOR_BGR2GRAY)
+    mask = (cv2.absdiff(g1, g2) >= DIFF_THRESHOLD) & (var_layer.sum(axis=2) > 0)
+    out = blend.copy()
+    out[mask] = (0, 0, 255)
 
     th, tw = template_bgr.shape[:2]
     cv2.rectangle(
@@ -130,4 +119,4 @@ def render_preview(
         thickness=2,
     )
 
-    return out, msg
+    return out, ""

@@ -25,7 +25,7 @@ _PAD_BTN_STYLE = (
 
 _HINT_BASE = (
     "クリックでフォーカス: Ctrl+ホイールで拡大縮小 / 左ドラッグで移動 / "
-    "矢印で1px / Spaceで比較位置と表示をリセット"
+    "矢印またはWASDで1px / Spaceで比較位置と表示をリセット"
 )
 
 
@@ -244,13 +244,13 @@ class _PreviewViewport(QWidget):
 
     def keyPressEvent(self, event: QKeyEvent) -> None:  # type: ignore[override]
         k = event.key()
-        if k == Qt.Key.Key_Left:
+        if k == Qt.Key.Key_Left or k == Qt.Key.Key_A:
             self.nudge.emit(-1, 0)
-        elif k == Qt.Key.Key_Right:
+        elif k == Qt.Key.Key_Right or k == Qt.Key.Key_D:
             self.nudge.emit(1, 0)
-        elif k == Qt.Key.Key_Up:
+        elif k == Qt.Key.Key_Up or k == Qt.Key.Key_W:
             self.nudge.emit(0, -1)
-        elif k == Qt.Key.Key_Down:
+        elif k == Qt.Key.Key_Down or k == Qt.Key.Key_S:
             self.nudge.emit(0, 1)
         elif k == Qt.Key.Key_Space:
             self.reset_requested.emit()
@@ -261,7 +261,7 @@ class _PreviewViewport(QWidget):
 
 
 class CompositePreviewPanel(QWidget):
-    """プレビュー: アスペクト維持、Ctrl+ホイール、ドラッグパン、矢印・Space。"""
+    """プレビュー: アスペクト維持、Ctrl+ホイール、ドラッグパン、矢印・WASD・Space。"""
 
     nudge = pyqtSignal(int, int)
     reset_requested = pyqtSignal()
