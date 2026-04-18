@@ -1,8 +1,10 @@
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
     QFrame,
+    QHBoxLayout,
     QLabel,
     QMainWindow,
+    QSlider,
     QSplitter,
     QStatusBar,
     QVBoxLayout,
@@ -14,8 +16,10 @@ from views.paste_image_panel import PasteImagePanel
 from views.session_toolbar import SessionToolbar
 from views.variant_toolbar import VariantToolbar
 
+# QLabel は QFrame のサブクラスのため、親に「QFrame { ... }」だけだと子ラベルにも当たる。
+# セクション枠だけを対象にするため objectName で限定する。
 _SECTION_FRAME_QSS = (
-    "QFrame {"
+    "QFrame#section_base, QFrame#section_cmp, QFrame#section_right {"
     "  border: 1px solid #b0b0b0;"
     "  border-radius: 8px;"
     "  background-color: palette(base);"
@@ -23,7 +27,8 @@ _SECTION_FRAME_QSS = (
 )
 
 
-def _style_section_frame(frame: QFrame) -> None:
+def _style_section_frame(frame: QFrame, section_id: str) -> None:
+    frame.setObjectName(section_id)
     frame.setFrameShape(QFrame.Shape.NoFrame)
     frame.setStyleSheet(_SECTION_FRAME_QSS)
 
@@ -53,7 +58,7 @@ class MainWindow(QMainWindow):
         self._left_split.setHandleWidth(5)
 
         frame_base = QFrame()
-        _style_section_frame(frame_base)
+        _style_section_frame(frame_base, "section_base")
         fb = QVBoxLayout(frame_base)
         fb.setContentsMargins(8, 8, 8, 8)
         title_b = QLabel("基準画像")
@@ -65,7 +70,7 @@ class MainWindow(QMainWindow):
         fb.addWidget(self.base_panel, stretch=1)
 
         frame_cmp = QFrame()
-        _style_section_frame(frame_cmp)
+        _style_section_frame(frame_cmp, "section_cmp")
         fc = QVBoxLayout(frame_cmp)
         fc.setContentsMargins(8, 8, 8, 8)
         title_c = QLabel("比較画像")
@@ -84,12 +89,26 @@ class MainWindow(QMainWindow):
         self._left_split.setStretchFactor(1, 1)
 
         frame_right = QFrame()
-        _style_section_frame(frame_right)
+        _style_section_frame(frame_right, "section_right")
         rr = QVBoxLayout(frame_right)
         rr.setContentsMargins(8, 8, 8, 8)
         title_r = QLabel("プレビュー")
         title_r.setStyleSheet("font-weight: bold;")
         rr.addWidget(title_r)
+
+        diff_row = QHBoxLayout()
+        diff_lbl = QLabel("差分グループ半径")
+        self.diff_group_slider = QSlider(Qt.Orientation.Horizontal)
+        self.diff_group_slider.setRange(1, 50)
+        self.diff_group_slider.setValue(10)
+        self.diff_group_slider.setPageStep(5)
+        self.diff_group_value_label = QLabel("10 px")
+        self.diff_group_value_label.setMinimumWidth(48)
+        diff_row.addWidget(diff_lbl)
+        diff_row.addWidget(self.diff_group_slider, stretch=1)
+        diff_row.addWidget(self.diff_group_value_label)
+        rr.addLayout(diff_row)
+
         self.preview_panel = CompositePreviewPanel()
         rr.addWidget(self.preview_panel, stretch=1)
 

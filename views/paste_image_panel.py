@@ -1,8 +1,18 @@
 from pathlib import Path
 
 import numpy as np
-from PyQt6.QtCore import QSize, Qt, pyqtSignal
-from PyQt6.QtGui import QCursor, QDragEnterEvent, QDropEvent, QIcon, QMouseEvent, QPixmap
+from PyQt6.QtCore import QRect, QRectF, QSize, Qt, pyqtSignal
+from PyQt6.QtGui import (
+    QColor,
+    QCursor,
+    QDragEnterEvent,
+    QDropEvent,
+    QIcon,
+    QMouseEvent,
+    QPainter,
+    QPen,
+    QPixmap,
+)
 from PyQt6.QtWidgets import (
     QHBoxLayout,
     QLabel,
@@ -14,6 +24,40 @@ from PyQt6.QtWidgets import (
 
 
 IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".bmp", ".webp", ".tif", ".tiff"}
+
+
+class _RectHighlightOverlay(QWidget):
+    """画像上に差分グループの赤枠のみ描画。マウスは下へ透過。"""
+
+    def __init__(self, panel: "PasteImagePanel") -> None:
+        super().__init__(panel)
+        self._panel = panel
+        self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
+
+    def paintEvent(self, event) -> None:  # type: ignore[override]
+        rects = self._panel._highlight_rects
+        if not rects or self._panel._full_pixmap.isNull():
+            return
+        iw = self._panel._full_pixmap.width()
+        ih = self._panel._full_pixmap.height()
+        if iw < 1 or ih < 1:
+            return
+        dr = self._panel._scaled_pixmap_draw_rect()
+        if dr.width() < 1 or dr.height() < 1:
+            return
+        s = min(dr.width() / float(iw), dr.height() / float(ih))
+        ox = dr.x() + 0.5 * (dr.width() - iw * s)
+        oy = dr.y() + 0.5 * (dr.height() - ih * s)
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        pen = QPen(QColor(255, 0, 0))
+        pen.setWidth(2)
+        pen.setCosmetic(True)
+        p.setPen(pen)
+        for x, y, w, h in rects:
+            rf = QRectF(ox + x * s, oy + y * s, w * s, h * s)
+            p.drawRect(rf)
+        p.end()
 
 
 class PasteImagePanel(QWidget):
@@ -39,8 +83,12 @@ class PasteImagePanel(QWidget):
         self._label.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
         self._placeholder = placeholder
         self._full_pixmap = QPixmap()
+        self._highlight_rects: list[tuple[int, int, int, int]] = []
         self.setAcceptDrops(True)
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+
+        self._rect_overlay = _RectHighlightOverlay(self)
+        self._rect_overlay.hide()
 
         self._overlay = QWidget(self)
         self._overlay.hide()
@@ -98,14 +146,30 @@ class PasteImagePanel(QWidget):
         else:
             self.setStyleSheet("PasteImagePanel { border: 1px solid #bbb; border-radius: 4px; }")
 
+    def _scaled_pixmap_draw_rect(self) -> QRect:
+        if self._full_pixmap.isNull():
+            return QRect()
+        iw = self._full_pixmap.width()
+        ih = self._full_pixmap.height()
+        lw, lh = self.width(), self.height()
+        scaled = QSize(iw, ih).scaled(
+            lw, lh, Qt.AspectRatioMode.KeepAspectRatio
+        )
+        sw, sh = scaled.width(), scaled.height()
+        ox = (lw - sw) // 2
+        oy = (lh - sh) // 2
+        return QRect(ox, oy, sw, sh)
+
     def resizeEvent(self, event) -> None:  # type: ignore[override]
         self._label.setGeometry(self.rect())
+        self._rect_overlay.setGeometry(self.rect())
         self._apply_scaled_pixmap()
         self._overlay.adjustSize()
         m = 8
         x = self.width() - self._overlay.width() - m
         y = self.height() - self._overlay.height() - m
         self._overlay.move(max(m, x), max(m, y))
+        self._rect_overlay.raise_()
         if self._overlay.isVisible():
             self._overlay.raise_()
         super().resizeEvent(event)
@@ -160,12 +224,25 @@ class PasteImagePanel(QWidget):
         )
         self._label.setPixmap(scaled)
         self._label.setText("")
+        self._rect_overlay.update()
+
+    def set_highlight_rects(
+        self, rects: list[tuple[int, int, int, int]] | None
+    ) -> None:
+        self._highlight_rects = list(rects) if rects else []
+        if self._highlight_rects and not self._full_pixmap.isNull():
+            self._rect_overlay.show()
+        else:
+            self._rect_overlay.hide()
+        self._rect_overlay.update()
 
     def set_numpy_bgr(self, arr: np.ndarray | None) -> None:
         from services import image_ops
 
         if arr is None:
             self._full_pixmap = QPixmap()
+            self._highlight_rects = []
+            self._rect_overlay.hide()
             self._label.setPixmap(QPixmap())
             self._label.setText(self._placeholder)
             return

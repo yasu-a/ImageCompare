@@ -41,6 +41,34 @@ class ComparisonApplicationService:
             return
         self._state.reset_offset_to_best()
 
+    def set_diff_group_radius_px(self, radius_px: int) -> None:
+        r = int(radius_px)
+        r = max(image_ops.DIFF_GROUP_RADIUS_MIN, min(image_ops.DIFF_GROUP_RADIUS_MAX, r))
+        self._state.diff_group_radius_px = r
+
+    def diff_highlight_rects(
+        self,
+    ) -> tuple[list[tuple[int, int, int, int]], list[tuple[int, int, int, int]]]:
+        """基準・比較それぞれの画像座標での差分グループ矩形 (x, y, w, h)。"""
+        sess = self._sessions.current_session()
+        if sess is None or sess.base_image_bgr is None:
+            return [], []
+        vid = self._state.selected_variant_id
+        if vid is None:
+            return [], []
+        v = sess.find_variant(vid)
+        if v is None or not v.has_image():
+            return [], []
+        if self._state.best_match_xy is None:
+            return [], []
+        return image_ops.diff_group_rects_native(
+            sess.base_image_bgr,
+            v.image_bgr,
+            self._state.best_match_xy,
+            self._state.manual_offset_xy,
+            self._state.diff_group_radius_px,
+        )
+
     def recompute_match(self) -> None:
         sess = self._sessions.current_session()
         if sess is None or sess.base_image_bgr is None:

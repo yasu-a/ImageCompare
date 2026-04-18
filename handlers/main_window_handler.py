@@ -79,6 +79,34 @@ class MainWindowHandler:
         self._shortcut_delete = QShortcut(QKeySequence(Qt.Key.Key_Delete), self._win)
         self._shortcut_delete.activated.connect(self._on_shortcut_delete)
 
+        self._win.diff_group_slider.valueChanged.connect(self._on_diff_group_radius_changed)
+
+    def _on_diff_group_radius_changed(self, v: int) -> None:
+        self._win.diff_group_value_label.setText(f"{v} px")
+        self._comparison.set_diff_group_radius_px(v)
+        self._update_diff_highlights()
+
+    def _update_diff_highlights(self) -> None:
+        sess = self._session_svc.current_session()
+        st = self._comparison.state()
+        if (
+            sess is None
+            or sess.base_image_bgr is None
+            or st.best_match_xy is None
+            or st.selected_variant_id is None
+        ):
+            self._win.base_panel.set_highlight_rects(None)
+            self._win.variant_panel.set_highlight_rects(None)
+            return
+        v = sess.find_variant(st.selected_variant_id)
+        if v is None or not v.has_image():
+            self._win.base_panel.set_highlight_rects(None)
+            self._win.variant_panel.set_highlight_rects(None)
+            return
+        br, vr = self._comparison.diff_highlight_rects()
+        self._win.base_panel.set_highlight_rects(br)
+        self._win.variant_panel.set_highlight_rects(vr)
+
     def _toast(self, message: str, *, error: bool = False) -> None:
         sb = self._win.statusBar()
         if error:
@@ -330,6 +358,8 @@ class MainWindowHandler:
         self._win.variant_toolbar.setEnabled(has_sess)
         self._win.base_panel.setEnabled(has_sess)
         self._win.variant_panel.setEnabled(has_sess)
+        can_highlight = has_sess and st.best_match_xy is not None
+        self._win.diff_group_slider.setEnabled(can_highlight)
 
         vcb = self._win.variant_toolbar.variant_combo
         vcb.blockSignals(True)
@@ -375,5 +405,13 @@ class MainWindowHandler:
             self._win.preview_panel.set_preview(pm, msg)
         else:
             self._win.preview_panel.set_preview(None, msg)
+
+        sl = self._win.diff_group_slider
+        sl.blockSignals(True)
+        sl.setValue(st.diff_group_radius_px)
+        sl.blockSignals(False)
+        self._win.diff_group_value_label.setText(f"{sl.value()} px")
+
+        self._update_diff_highlights()
 
         self._sync_panel_selection()
