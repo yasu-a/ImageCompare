@@ -61,12 +61,14 @@ class ComparisonApplicationService:
             return [], []
         if self._state.best_match_xy is None:
             return [], []
+        m = image_ops.template_match_margin_px(v.image_bgr)
         return image_ops.diff_group_rects_native(
             sess.base_image_bgr,
             v.image_bgr,
             self._state.best_match_xy,
             self._state.manual_offset_xy,
             self._state.diff_group_radius_px,
+            m,
         )
 
     def recompute_match(self) -> None:
@@ -107,8 +109,9 @@ class ComparisonApplicationService:
         v = sess.find_variant(vid)
         if v is None or not v.has_image():
             return None, "比較画像を貼り付けてください。"
+        m = image_ops.template_match_margin_px(v.image_bgr)
         if self._state.best_match_xy is None:
-            pad = image_ops.pad_base(sess.base_image_bgr)
+            pad = image_ops.pad_base(sess.base_image_bgr, m)
             return pad, self._state.last_match_message or image_ops.MATCH_ADJUST_USER_MESSAGE
         best = self._state.best_match_xy
         out, msg = image_ops.render_preview(
@@ -116,5 +119,6 @@ class ComparisonApplicationService:
             v.image_bgr,
             best,
             self._state.manual_offset_xy,
+            m,
         )
         return out, msg

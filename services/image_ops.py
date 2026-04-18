@@ -6,6 +6,7 @@ import cv2
 import numpy as np
 from PyQt6.QtGui import QImage, QPixmap
 
+# pad_base の既定。テンプレートマッチングは template_match_margin_px を使う。
 MARGIN_PX = 50
 DIFF_THRESHOLD = 30
 DIFF_GROUP_RECT_PADDING_PX = 2
@@ -55,9 +56,16 @@ def pad_base(base_bgr: np.ndarray, margin: int = MARGIN_PX) -> np.ndarray:
     )
 
 
+def template_match_margin_px(template_bgr: np.ndarray) -> int:
+    """比較画像の幅・高さのうち大きい方の 1/2 を、マッチング探索用パディングに用いる。"""
+    th, tw = template_bgr.shape[:2]
+    return max(tw, th) // 2
+
+
 def match_template_full(
-    base_bgr: np.ndarray, template_bgr: np.ndarray, margin: int = MARGIN_PX
+    base_bgr: np.ndarray, template_bgr: np.ndarray
 ) -> MatchResult:
+    margin = template_match_margin_px(template_bgr)
     padded = pad_base(base_bgr, margin)
     th, tw = template_bgr.shape[:2]
     ph, pw = padded.shape[:2]
@@ -98,7 +106,7 @@ def diff_mask_bool(
     template_bgr: np.ndarray,
     best_xy: tuple[int, int],
     offset_xy: tuple[int, int],
-    margin: int = MARGIN_PX,
+    margin: int,
 ) -> tuple[np.ndarray, int, int, int, int]:
     """プレビューと同条件の差分マスク（パディング座標）と (bx, by, tw, th)。"""
     padded = pad_base(base_bgr, margin)
@@ -130,7 +138,7 @@ def diff_group_rects_native(
     best_xy: tuple[int, int],
     offset_xy: tuple[int, int],
     radius_px: int,
-    margin: int = MARGIN_PX,
+    margin: int,
 ) -> tuple[list[tuple[int, int, int, int]], list[tuple[int, int, int, int]]]:
     """
     差分をモルフォロジーでつないだうえで連結成分ごとの外接矩形。
@@ -199,7 +207,7 @@ def render_preview(
     template_bgr: np.ndarray,
     best_xy: tuple[int, int],
     offset_xy: tuple[int, int],
-    margin: int = MARGIN_PX,
+    margin: int,
 ) -> tuple[np.ndarray, str]:
     """50/50 透かし合成し、差分を赤で強調する。"""
     padded = pad_base(base_bgr, margin)
