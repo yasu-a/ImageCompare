@@ -96,23 +96,27 @@ class ComparisonApplicationService:
             self._state.best_match_xy = None
             self._state.last_match_message = res.message or image_ops.MATCH_ADJUST_USER_MESSAGE
 
-    def preview_tuple(self) -> tuple[np.ndarray | None, str]:
-        """合成結果 BGR とメッセージ。画像が無い場合は (None, メッセージ)。"""
+    def preview_tuple(
+        self,
+    ) -> tuple[np.ndarray | None, str, tuple[int, int, int, int] | None]:
+        """合成 BGR・メッセージ・プレビュー座標系での基準画像矩形 (x,y,w,h)。画像なし時は rect は None。"""
         sess = self._sessions.current_session()
         if sess is None:
-            return None, "セッションを作成してください。"
+            return None, "セッションを作成してください。", None
         if sess.base_image_bgr is None:
-            return None, "基準画像を貼り付けてください。"
+            return None, "基準画像を貼り付けてください。", None
         vid = self._state.selected_variant_id
         if vid is None:
-            return None, "比較画像スロットを追加してください。"
+            return None, "比較画像スロットを追加してください。", None
         v = sess.find_variant(vid)
         if v is None or not v.has_image():
-            return None, "比較画像を貼り付けてください。"
+            return None, "比較画像を貼り付けてください。", None
         m = image_ops.template_match_margin_px(v.image_bgr)
+        bh, bw = sess.base_image_bgr.shape[:2]
+        fit_rect = (m, m, bw, bh)
         if self._state.best_match_xy is None:
             pad = image_ops.pad_base(sess.base_image_bgr, m)
-            return pad, self._state.last_match_message or image_ops.MATCH_ADJUST_USER_MESSAGE
+            return pad, self._state.last_match_message or image_ops.MATCH_ADJUST_USER_MESSAGE, fit_rect
         best = self._state.best_match_xy
         out, msg = image_ops.render_preview(
             sess.base_image_bgr,
@@ -121,4 +125,4 @@ class ComparisonApplicationService:
             self._state.manual_offset_xy,
             m,
         )
-        return out, msg
+        return out, msg, fit_rect

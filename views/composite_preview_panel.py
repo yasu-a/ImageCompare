@@ -45,6 +45,11 @@ class _PreviewViewport(QWidget):
         self._source: QPixmap | None = None
         self._iw = 0
         self._ih = 0
+        # 初期フィット・Ctrl+ホイールの基準スケール用（パディング除く基準画像領域など）
+        self._fit_rx = 0
+        self._fit_ry = 0
+        self._fit_rw = 0
+        self._fit_rh = 0
 
         self._scale = 1.0
         self._ox = 0.0
@@ -82,10 +87,16 @@ class _PreviewViewport(QWidget):
         grid.addWidget(self._btn_r, 1, 2)
         grid.addWidget(self._btn_d, 2, 1)
 
-    def set_source_pixmap(self, pm: QPixmap | None, reset_interaction: bool) -> None:
+    def set_source_pixmap(
+        self,
+        pm: QPixmap | None,
+        reset_interaction: bool,
+        fit_content_rect: tuple[int, int, int, int] | None,
+    ) -> None:
         if pm is None or pm.isNull():
             self._source = None
             self._iw = self._ih = 0
+            self._fit_rx = self._fit_ry = self._fit_rw = self._fit_rh = 0
             self._dragging = False
             self._drag_last = None
             self.update()
@@ -93,6 +104,7 @@ class _PreviewViewport(QWidget):
         self._source = pm
         self._iw = pm.width()
         self._ih = pm.height()
+        self._apply_fit_content_rect(fit_content_rect)
         if reset_interaction:
             self._reset_transform_to_fit()
         self.update()
@@ -101,12 +113,29 @@ class _PreviewViewport(QWidget):
         self._reset_transform_to_fit()
         self.update()
 
+    def _apply_fit_content_rect(
+        self, fit_content_rect: tuple[int, int, int, int] | None
+    ) -> None:
+        if fit_content_rect is None or self._iw <= 0 or self._ih <= 0:
+            self._fit_rx, self._fit_ry = 0, 0
+            self._fit_rw, self._fit_rh = self._iw, self._ih
+            return
+        rx, ry, rw, rh = fit_content_rect
+        rw = max(1, rw)
+        rh = max(1, rh)
+        rx = max(0, min(rx, self._iw - 1))
+        ry = max(0, min(ry, self._ih - 1))
+        rw = min(rw, self._iw - rx)
+        rh = min(rh, self._ih - ry)
+        self._fit_rx, self._fit_ry = rx, ry
+        self._fit_rw, self._fit_rh = max(1, rw), max(1, rh)
+
     def _s_fit(self) -> float:
-        if self._iw <= 0 or self._ih <= 0:
+        if self._fit_rw <= 0 or self._fit_rh <= 0:
             return 1.0
         vp_w = max(self.width(), 1)
         vp_h = max(self.height(), 1)
-        return min(vp_w / self._iw, vp_h / self._ih)
+        return min(vp_w / self._fit_rw, vp_h / self._fit_rh)
 
     def _reset_transform_to_fit(self) -> None:
         self._zoom_mul = 1.0
@@ -114,8 +143,10 @@ class _PreviewViewport(QWidget):
         self._scale = s_fit * self._zoom_mul
         vp_w = max(self.width(), 1)
         vp_h = max(self.height(), 1)
-        self._ox = (vp_w - self._iw * self._scale) / 2.0
-        self._oy = (vp_h - self._ih * self._scale) / 2.0
+        cx_img = self._fit_rx + self._fit_rw / 2.0
+        cy_img = self._fit_ry + self._fit_rh / 2.0
+        self._ox = vp_w / 2.0 - cx_img * self._scale
+        self._oy = vp_h / 2.0 - cy_img * self._scale
 
     def resizeEvent(self, event) -> None:  # type: ignore[override]
         super().resizeEvent(event)
@@ -123,11 +154,13 @@ class _PreviewViewport(QWidget):
             s_fit = self._s_fit()
             min_s = s_fit * _ZOOM_MIN
             max_s = s_fit * _ZOOM_MAX
+            old_scale = self._scale
             self._scale = max(min_s, min(max_s, self._scale))
+            self._zoom_mul = self._scale / s_fit if s_fit > 0 else 1.0
             cx = self.width() / 2.0
             cy = self.height() / 2.0
-            ix = (cx - self._ox) / self._scale if self._scale > 0 else 0.0
-            iy = (cy - self._oy) / self._scale if self._scale > 0 else 0.0
+            ix = (cx - self._ox) / old_scale if old_scale > 0 else 0.0
+            iy = (cy - self._oy) / old_scale if old_scale > 0 else 0.0
             self._ox = cx - ix * self._scale
             self._oy = cy - iy * self._scale
         self._place_pad()
@@ -269,6 +302,7 @@ class CompositePreviewPanel(QWidget):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._last_preview_wh: tuple[int, int] | None = None
+        self._last_fit_rect: tuple[int, int, int, int] | None = None
 
         self._viewport = _PreviewViewport(self)
         self._viewport.nudge.connect(self.nudge.emit)
@@ -282,15 +316,22 @@ class CompositePreviewPanel(QWidget):
         lay.addWidget(self._viewport, stretch=1)
         lay.addWidget(self._hint)
 
-    def set_preview(self, pixmap: QPixmap | None, subtitle: str = "") -> None:
+    def set_preview(
+        self,
+        pixmap: QPixmap | None,
+        subtitle: str = "",
+        fit_content_rect: tuple[int, int, int, int] | None = None,
+    ) -> None:
         if pixmap is None or pixmap.isNull():
             self._last_preview_wh = None
-            self._viewport.set_source_pixmap(None, True)
+            self._last_fit_rect = None
+            self._viewport.set_source_pixmap(None, True, None)
         else:
             wh = (pixmap.width(), pixmap.height())
-            reset = self._last_preview_wh != wh
+            reset = self._last_preview_wh != wh or self._last_fit_rect != fit_content_rect
             self._last_preview_wh = wh
-            self._viewport.set_source_pixmap(pixmap, reset)
+            self._last_fit_rect = fit_content_rect
+            self._viewport.set_source_pixmap(pixmap, reset, fit_content_rect)
         if subtitle:
             self._hint.setText(f"{subtitle}\n\n{_HINT_BASE}")
         else:

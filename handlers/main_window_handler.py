@@ -399,12 +399,12 @@ class MainWindowHandler:
             else:
                 self._win.variant_panel.set_numpy_bgr(None)
 
-        arr, msg = self._comparison.preview_tuple()
+        arr, msg, fit_rect = self._comparison.preview_tuple()
         if arr is not None:
             pm = image_ops.bgr_to_qpixmap(arr)
-            self._win.preview_panel.set_preview(pm, msg)
+            self._win.preview_panel.set_preview(pm, msg, fit_rect)
         else:
-            self._win.preview_panel.set_preview(None, msg)
+            self._win.preview_panel.set_preview(None, msg, None)
 
         sl = self._win.diff_group_slider
         sl.blockSignals(True)
