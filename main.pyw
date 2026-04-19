@@ -25,7 +25,7 @@ def _apply_fusion_light_theme(app: QApplication) -> None:
 def main() -> int:
     app = QApplication(sys.argv)
     _apply_fusion_light_theme(app)
-    run_app(app)
+    _win, _handler = run_app(app)
     return app.exec()
 
 

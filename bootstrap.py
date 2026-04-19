@@ -9,7 +9,7 @@ from repositories.session_repository import SessionRepository
 from views.main_window import MainWindow
 
 
-def run_app(app: QApplication) -> None:
+def run_app(app: QApplication) -> tuple[MainWindow, MainWindowHandler]:
     app.setApplicationName("ImageCompare")
     repo = SessionRepository()
     session_svc = SessionApplicationService(repo)
@@ -24,3 +24,4 @@ def run_app(app: QApplication) -> None:
     handler.wire()
     handler.refresh_all()
     win.show()
+    return win, handler

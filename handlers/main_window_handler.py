@@ -4,7 +4,7 @@ from typing import Literal
 
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QImage, QKeySequence, QShortcut
-from PyQt6.QtWidgets import QApplication
+from PyQt6.QtWidgets import QApplication, QListWidgetItem
 
 from application.comparison_application_service import ComparisonApplicationService
 from application.session_application_service import SessionApplicationService
@@ -37,7 +37,7 @@ class MainWindowHandler:
         self._variant_undo: dict[str, np.ndarray | None] = {}
 
         self._session_h = SessionHandler(
-            window.session_toolbar,
+            window.session_list_panel,
             session_svc,
             navigator,
             self._on_session_changed,
@@ -48,7 +48,6 @@ class MainWindowHandler:
             session_svc,
             comparison_svc,
             self.refresh_all,
-            on_clear_clicked=self._toolbar_clear_variant,
         )
         self._preview_h = PreviewHandler(
             window.preview_panel,
@@ -80,6 +79,87 @@ class MainWindowHandler:
         self._shortcut_delete.activated.connect(self._on_shortcut_delete)
 
         self._win.diff_group_slider.valueChanged.connect(self._on_diff_group_radius_changed)
+
+        self._win.session_list_panel.collapse_button.clicked.connect(
+            self._toggle_session_section
+        )
+        self._win.preview_collapse_button().clicked.connect(self._toggle_preview_section)
+
+    def _toggle_session_section(self) -> None:
+        """横3分割の左列（セッション）を狭くする。"""
+        ms = self._win.main_split()
+        p = self._win.session_list_panel
+        new_collapsed = not p.is_section_collapsed()
+        sizes = ms.sizes()
+        if len(sizes) == 3 and new_collapsed:
+            self._win._triple_split_session_backup = list(sizes)
+        p.set_section_collapsed(new_collapsed)
+        self._win.session_section_collapsed = new_collapsed
+        if len(sizes) != 3:
+            return
+        if new_collapsed:
+            w0, w1, w2 = sizes
+            target = p.collapsed_column_outer_width()
+            if w0 < target:
+                need = target - w0
+                den = w1 + w2
+                if den > 0:
+                    t1 = int(need * w1 / den)
+                    t2 = need - t1
+                    w1 -= t1
+                    w2 -= t2
+                w0 = target
+                ms.setSizes([w0, w1, w2])
+                return
+            extra = w0 - target
+            den = w1 + w2
+            if den > 0:
+                add1 = int(extra * w1 / den)
+                add2 = extra - add1
+            else:
+                add1 = add2 = 0
+            ms.setSizes([target, w1 + add1, w2 + add2])
+        else:
+            if self._win._triple_split_session_backup is not None:
+                ms.setSizes(self._win._triple_split_session_backup)
+                self._win._triple_split_session_backup = None
+
+    def _toggle_preview_section(self) -> None:
+        """横3分割の右列（プレビュー）を狭くする。"""
+        ms = self._win.main_split()
+        new_c = not self._win.preview_section_collapsed
+        sizes = ms.sizes()
+        if len(sizes) == 3 and new_c:
+            self._win._triple_split_preview_backup = list(sizes)
+        self._win.set_preview_section_collapsed(new_c)
+        if len(sizes) != 3:
+            return
+        if new_c:
+            w0, w1, w2 = sizes
+            target = self._win.preview_collapsed_column_outer_width()
+            if w2 < target:
+                need = target - w2
+                den = w0 + w1
+                if den > 0:
+                    t0 = int(need * w0 / den)
+                    t1 = need - t0
+                    w0 -= t0
+                    w1 -= t1
+                w2 = target
+                ms.setSizes([w0, w1, w2])
+                return
+            extra = w2 - target
+            den = w0 + w1
+            if den > 0:
+                add0 = int(extra * w0 / den)
+                add1 = extra - add0
+            else:
+                add0 = add1 = 0
+            ms.setSizes([w0 + add0, w1 + add1, target])
+        else:
+            if self._win._triple_split_preview_backup is not None:
+                ms.setSizes(self._win._triple_split_preview_backup)
+                self._win._triple_split_preview_backup = None
 
     def _on_diff_group_radius_changed(self, v: int) -> None:
         self._win.diff_group_value_label.setText(f"{v} px")
@@ -145,7 +225,7 @@ class MainWindowHandler:
     def _require_session(self) -> bool:
         if self._session_svc.current_session() is None:
             self._toast(
-                "先にセッションの「+」で作成するか、一覧から選んでください。",
+                "先にセッション一覧の追加で作成するか、一覧から選んでください。",
                 error=True,
             )
             return False
@@ -330,28 +410,29 @@ class MainWindowHandler:
             return
         self._apply_variant_bgr(vid, None, record_undo=True)
 
-    def _toolbar_clear_variant(self) -> None:
-        self._clear_variant()
-
     def refresh_all(self) -> None:
-        scb = self._win.session_toolbar.session_combo
-        scb.blockSignals(True)
-        scb.clear()
+        lw = self._win.session_list_panel.session_list
+        lw.blockSignals(True)
+        lw.clear()
         cur_sid = self._session_svc.current_session_id
         for sess in self._session_svc.all_sessions_ordered():
-            scb.addItem(sess.display_name, sess.session_id)
+            it = QListWidgetItem(sess.display_name)
+            it.setData(Qt.ItemDataRole.UserRole, sess.session_id)
+            lw.addItem(it)
         if cur_sid:
-            for i in range(scb.count()):
-                if scb.itemData(i, Qt.ItemDataRole.UserRole) == cur_sid:
-                    scb.setCurrentIndex(i)
+            for i in range(lw.count()):
+                item = lw.item(i)
+                if item is not None and item.data(Qt.ItemDataRole.UserRole) == cur_sid:
+                    lw.setCurrentRow(i)
                     break
             else:
-                scb.setCurrentIndex(-1)
+                lw.setCurrentRow(-1)
         else:
-            scb.setCurrentIndex(-1)
-        scb.blockSignals(False)
+            lw.setCurrentRow(-1)
+        lw.blockSignals(False)
 
         sess = self._session_svc.current_session()
+        self._win.session_list_panel.delete_button.setEnabled(sess is not None)
         self._prune_variant_undo(sess)
         st = self._comparison.state()
         has_sess = sess is not None

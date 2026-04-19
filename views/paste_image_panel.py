@@ -1,7 +1,7 @@
 from pathlib import Path
 
 import numpy as np
-from PyQt6.QtCore import QRect, QRectF, QSize, Qt, pyqtSignal
+from PyQt6.QtCore import QRectF, QSize, Qt, pyqtSignal
 from PyQt6.QtGui import (
     QColor,
     QCursor,
@@ -15,12 +15,13 @@ from PyQt6.QtGui import (
 )
 from PyQt6.QtWidgets import (
     QHBoxLayout,
-    QLabel,
     QSizePolicy,
     QStyle,
     QToolButton,
     QWidget,
 )
+
+from views.zoom_pan_image_viewport import ZoomPanImageViewport
 
 
 IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".bmp", ".webp", ".tif", ".tiff"}
@@ -29,25 +30,18 @@ IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".bmp", ".webp", ".tif", ".tiff"}
 class _RectHighlightOverlay(QWidget):
     """画像上に差分グループの赤枠のみ描画。マウスは下へ透過。"""
 
-    def __init__(self, panel: "PasteImagePanel") -> None:
-        super().__init__(panel)
+    def __init__(
+        self, viewport: ZoomPanImageViewport, panel: "PasteImagePanel"
+    ) -> None:
+        super().__init__(viewport)
+        self._viewport = viewport
         self._panel = panel
         self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
 
     def paintEvent(self, event) -> None:  # type: ignore[override]
         rects = self._panel._highlight_rects
-        if not rects or self._panel._full_pixmap.isNull():
+        if not rects or not self._viewport.has_pixmap():
             return
-        iw = self._panel._full_pixmap.width()
-        ih = self._panel._full_pixmap.height()
-        if iw < 1 or ih < 1:
-            return
-        dr = self._panel._scaled_pixmap_draw_rect()
-        if dr.width() < 1 or dr.height() < 1:
-            return
-        s = min(dr.width() / float(iw), dr.height() / float(ih))
-        ox = dr.x() + 0.5 * (dr.width() - iw * s)
-        oy = dr.y() + 0.5 * (dr.height() - ih * s)
         p = QPainter(self)
         p.setRenderHint(QPainter.RenderHint.Antialiasing, True)
         pen = QPen(QColor(255, 0, 0))
@@ -55,13 +49,13 @@ class _RectHighlightOverlay(QWidget):
         pen.setCosmetic(True)
         p.setPen(pen)
         for x, y, w, h in rects:
-            rf = QRectF(ox + x * s, oy + y * s, w * s, h * s)
-            p.drawRect(rf)
+            vx, vy, vw, vh = self._viewport.image_rect_to_viewport_rectf(x, y, w, h)
+            p.drawRect(QRectF(vx, vy, vw, vh))
         p.end()
 
 
 class PasteImagePanel(QWidget):
-    """選択後に Ctrl+V / ツールバーで貼付。D&D対応。ホバーで操作ボタン。"""
+    """選択後に Ctrl+V / ツールバーで貼付。D&D対応。ホバーで操作ボタン。Ctrl+ホイール・パン対応。"""
 
     activated = pyqtSignal()
     paste_requested = pyqtSignal()
@@ -72,22 +66,25 @@ class PasteImagePanel(QWidget):
     def __init__(self, placeholder: str, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._selected = False
-        self._label = QLabel(placeholder, self)
-        self._label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._label.setWordWrap(True)
-        self._label.setScaledContents(False)
-        self._label.setSizePolicy(
-            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding
-        )
-        self._label.setMinimumHeight(120)
-        self._label.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
         self._placeholder = placeholder
-        self._full_pixmap = QPixmap()
         self._highlight_rects: list[tuple[int, int, int, int]] = []
+        self._last_wh: tuple[int, int] | None = None
         self.setAcceptDrops(True)
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
 
-        self._rect_overlay = _RectHighlightOverlay(self)
+        self._viewport = ZoomPanImageViewport(
+            self,
+            empty_hint=placeholder,
+            draw_viewport_border=False,
+        )
+        self._viewport.setMinimumHeight(120)
+        self._viewport.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding
+        )
+        self._viewport.interaction_pressed.connect(self.activated.emit)
+
+        self._rect_overlay = _RectHighlightOverlay(self._viewport, self)
+        self._viewport.transform_changed.connect(self._rect_overlay.update)
         self._rect_overlay.hide()
 
         self._overlay = QWidget(self)
@@ -131,9 +128,6 @@ class PasteImagePanel(QWidget):
             return ic
         return self.style().standardIcon(fallback)
 
-    def label(self) -> QLabel:
-        return self._label
-
     def set_selected(self, selected: bool) -> None:
         self._selected = selected
         self._apply_selection_style()
@@ -146,24 +140,9 @@ class PasteImagePanel(QWidget):
         else:
             self.setStyleSheet("PasteImagePanel { border: 1px solid #bbb; border-radius: 4px; }")
 
-    def _scaled_pixmap_draw_rect(self) -> QRect:
-        if self._full_pixmap.isNull():
-            return QRect()
-        iw = self._full_pixmap.width()
-        ih = self._full_pixmap.height()
-        lw, lh = self.width(), self.height()
-        scaled = QSize(iw, ih).scaled(
-            lw, lh, Qt.AspectRatioMode.KeepAspectRatio
-        )
-        sw, sh = scaled.width(), scaled.height()
-        ox = (lw - sw) // 2
-        oy = (lh - sh) // 2
-        return QRect(ox, oy, sw, sh)
-
     def resizeEvent(self, event) -> None:  # type: ignore[override]
-        self._label.setGeometry(self.rect())
-        self._rect_overlay.setGeometry(self.rect())
-        self._apply_scaled_pixmap()
+        self._viewport.setGeometry(self.rect())
+        self._rect_overlay.setGeometry(0, 0, self._viewport.width(), self._viewport.height())
         self._overlay.adjustSize()
         m = 8
         x = self.width() - self._overlay.width() - m
@@ -209,28 +188,11 @@ class PasteImagePanel(QWidget):
                 return
         event.ignore()
 
-    def _apply_scaled_pixmap(self) -> None:
-        if self._full_pixmap.isNull():
-            self._label.setPixmap(QPixmap())
-            self._label.setText(self._placeholder)
-            return
-        target = self._label.size()
-        if target.width() < 2 or target.height() < 2:
-            return
-        scaled = self._full_pixmap.scaled(
-            target,
-            Qt.AspectRatioMode.KeepAspectRatio,
-            Qt.TransformationMode.SmoothTransformation,
-        )
-        self._label.setPixmap(scaled)
-        self._label.setText("")
-        self._rect_overlay.update()
-
     def set_highlight_rects(
         self, rects: list[tuple[int, int, int, int]] | None
     ) -> None:
         self._highlight_rects = list(rects) if rects else []
-        if self._highlight_rects and not self._full_pixmap.isNull():
+        if self._highlight_rects and self._viewport.has_pixmap():
             self._rect_overlay.show()
         else:
             self._rect_overlay.hide()
@@ -240,11 +202,14 @@ class PasteImagePanel(QWidget):
         from services import image_ops
 
         if arr is None:
-            self._full_pixmap = QPixmap()
             self._highlight_rects = []
             self._rect_overlay.hide()
-            self._label.setPixmap(QPixmap())
-            self._label.setText(self._placeholder)
+            self._last_wh = None
+            self._viewport.set_pixmap(None, True, None)
             return
-        self._full_pixmap = image_ops.bgr_to_qpixmap(arr)
-        self._apply_scaled_pixmap()
+        pm = image_ops.bgr_to_qpixmap(arr)
+        wh = (pm.width(), pm.height())
+        reset = self._last_wh != wh
+        self._last_wh = wh
+        self._viewport.set_pixmap(pm, reset, None)
+        self._rect_overlay.update()
