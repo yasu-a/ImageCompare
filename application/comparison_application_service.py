@@ -71,6 +71,31 @@ class ComparisonApplicationService:
             m,
         )
 
+    def diff_highlight_pairs(
+        self,
+    ) -> list[tuple[tuple[int, int, int, int], tuple[int, int, int, int]]]:
+        """基準・比較の両方で有効な差分矩形ペアのみ（画像座標）。"""
+        sess = self._sessions.current_session()
+        if sess is None or sess.base_image_bgr is None:
+            return []
+        vid = self._state.selected_variant_id
+        if vid is None:
+            return []
+        v = sess.find_variant(vid)
+        if v is None or not v.has_image():
+            return []
+        if self._state.best_match_xy is None:
+            return []
+        m = image_ops.template_match_margin_px(v.image_bgr)
+        return image_ops.diff_group_highlight_pairs(
+            sess.base_image_bgr,
+            v.image_bgr,
+            self._state.best_match_xy,
+            self._state.manual_offset_xy,
+            self._state.diff_group_radius_px,
+            m,
+        )
+
     def recompute_match(self) -> None:
         sess = self._sessions.current_session()
         if sess is None or sess.base_image_bgr is None:

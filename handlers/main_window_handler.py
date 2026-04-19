@@ -35,6 +35,9 @@ class MainWindowHandler:
         self._base_undo_has = False
         self._base_undo_prev: np.ndarray | None = None
         self._variant_undo: dict[str, np.ndarray | None] = {}
+        self._diff_highlight_pairs: list[
+            tuple[tuple[int, int, int, int], tuple[int, int, int, int]]
+        ] = []
 
         self._session_h = SessionHandler(
             window.session_list_panel,
@@ -70,6 +73,12 @@ class MainWindowHandler:
         self._win.variant_panel.clear_requested.connect(self._clear_variant)
         self._win.base_panel.file_dropped.connect(self._paste_base_file)
         self._win.variant_panel.file_dropped.connect(self._paste_variant_file)
+        self._win.base_panel.diff_highlight_pair_clicked.connect(
+            self._on_diff_highlight_pair_clicked
+        )
+        self._win.variant_panel.diff_highlight_pair_clicked.connect(
+            self._on_diff_highlight_pair_clicked
+        )
 
         self._shortcut_paste = QShortcut(QKeySequence.StandardKey.Paste, self._win)
         self._shortcut_paste.activated.connect(self._on_shortcut_paste)
@@ -175,17 +184,51 @@ class MainWindowHandler:
             or st.best_match_xy is None
             or st.selected_variant_id is None
         ):
+            self._diff_highlight_pairs = []
             self._win.base_panel.set_highlight_rects(None)
             self._win.variant_panel.set_highlight_rects(None)
             return
         v = sess.find_variant(st.selected_variant_id)
         if v is None or not v.has_image():
+            self._diff_highlight_pairs = []
             self._win.base_panel.set_highlight_rects(None)
             self._win.variant_panel.set_highlight_rects(None)
             return
-        br, vr = self._comparison.diff_highlight_rects()
-        self._win.base_panel.set_highlight_rects(br)
-        self._win.variant_panel.set_highlight_rects(vr)
+        pairs = self._comparison.diff_highlight_pairs()
+        self._diff_highlight_pairs = pairs
+        if not pairs:
+            self._win.base_panel.set_highlight_rects(None)
+            self._win.variant_panel.set_highlight_rects(None)
+            return
+        self._win.base_panel.set_highlight_rects([p[0] for p in pairs])
+        self._win.variant_panel.set_highlight_rects([p[1] for p in pairs])
+
+    def _on_diff_highlight_pair_clicked(self, index: int) -> None:
+        if index < 0 or index >= len(self._diff_highlight_pairs):
+            self._toast("この差分領域は比較表示できません。", error=True)
+            return
+        sess = self._session_svc.current_session()
+        if sess is None or sess.base_image_bgr is None:
+            self._toast("基準画像がありません。", error=True)
+            return
+        vid = self._comparison.state().selected_variant_id
+        if vid is None:
+            self._toast("比較スロットを選んでください。", error=True)
+            return
+        var = sess.find_variant(vid)
+        if var is None or not var.has_image():
+            self._toast("比較画像がありません。", error=True)
+            return
+        br, vr = self._diff_highlight_pairs[index]
+        base_crop = image_ops.crop_bgr_xywh(sess.base_image_bgr, br)
+        var_crop = image_ops.crop_bgr_xywh(var.image_bgr, vr)
+        if base_crop.size == 0 or var_crop.size == 0:
+            self._toast("この差分領域は比較表示できません。", error=True)
+            return
+        from views.diff_region_compare_dialog import DiffRegionCompareDialog
+
+        dlg = DiffRegionCompareDialog(self._win, base_crop, var_crop)
+        dlg.exec()
 
     def _toast(self, message: str, *, error: bool = False) -> None:
         sb = self._win.statusBar()

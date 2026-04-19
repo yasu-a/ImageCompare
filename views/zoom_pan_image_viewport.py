@@ -1,12 +1,23 @@
 """Ctrl+ホイール拡縮・ドラッグパン・フィット矩形付きの共通画像ビューポート。"""
 
+from dataclasses import dataclass
+
 from PyQt6.QtCore import QPointF, Qt, pyqtSignal
-from PyQt6.QtGui import QColor, QMouseEvent, QPainter, QPixmap, QWheelEvent
+from PyQt6.QtGui import QColor, QKeyEvent, QMouseEvent, QPainter, QPixmap, QWheelEvent
 from PyQt6.QtWidgets import QSizePolicy, QWidget
 
 _ZOOM_MIN = 0.25
 _ZOOM_MAX = 8.0
 _WHEEL_STEP = 1.12
+
+
+@dataclass(frozen=True)
+class ZoomPanViewState:
+    """ビュー間同期用: 画像1pxあたりの画面px（_scale）とビュー中心の画像内位置（正規化座標）。"""
+
+    scale: float
+    center_u: float
+    center_v: float
 
 
 class ZoomPanImageViewport(QWidget):
@@ -79,6 +90,41 @@ class ZoomPanImageViewport(QWidget):
     def has_pixmap(self) -> bool:
         return self._source is not None and not self._source.isNull() and self._iw > 0
 
+    def view_state(self) -> ZoomPanViewState | None:
+        """現在の実スケールとビュー中心の画像座標（正規化）。"""
+        if not self.has_pixmap() or self._scale <= 0:
+            return None
+        vp_w = max(self.width(), 1)
+        vp_h = max(self.height(), 1)
+        cx = vp_w / 2.0
+        cy = vp_h / 2.0
+        cix = (cx - self._ox) / self._scale
+        ciy = (cy - self._oy) / self._scale
+        u = cix / float(self._iw)
+        v = ciy / float(self._ih)
+        return ZoomPanViewState(scale=self._scale, center_u=u, center_v=v)
+
+    def apply_view_state(self, state: ZoomPanViewState) -> None:
+        """別ビューと同じ実スケール・同じ正規化中心で表示する（各ビューの clamp 内に収める）。"""
+        if not self.has_pixmap():
+            return
+        s_fit = self._s_fit()
+        if s_fit <= 0:
+            return
+        min_s = s_fit * _ZOOM_MIN
+        max_s = s_fit * _ZOOM_MAX
+        self._scale = max(min_s, min(max_s, state.scale))
+        self._zoom_mul = self._scale / s_fit
+        cix = state.center_u * float(self._iw)
+        ciy = state.center_v * float(self._ih)
+        vp_w = max(self.width(), 1)
+        vp_h = max(self.height(), 1)
+        self._ox = vp_w / 2.0 - cix * self._scale
+        self._oy = vp_h / 2.0 - ciy * self._scale
+        self._clamp_origin()
+        self.update()
+        self.transform_changed.emit()
+
     def image_rect_to_viewport_rectf(
         self, ix: int, iy: int, iw: int, ih: int
     ) -> tuple[float, float, float, float]:
@@ -131,18 +177,29 @@ class ZoomPanImageViewport(QWidget):
     def resizeEvent(self, event) -> None:  # type: ignore[override]
         super().resizeEvent(event)
         if self._source and not self._source.isNull():
-            s_fit = self._s_fit()
-            min_s = s_fit * _ZOOM_MIN
-            max_s = s_fit * _ZOOM_MAX
-            old_scale = self._scale
-            self._scale = max(min_s, min(max_s, self._scale))
-            self._zoom_mul = self._scale / s_fit if s_fit > 0 else 1.0
-            cx = self.width() / 2.0
-            cy = self.height() / 2.0
-            ix = (cx - self._ox) / old_scale if old_scale > 0 else 0.0
-            iy = (cy - self._oy) / old_scale if old_scale > 0 else 0.0
-            self._ox = cx - ix * self._scale
-            self._oy = cy - iy * self._scale
+            old = event.oldSize()
+            old_bad = (
+                not old.isValid()
+                or old.width() <= 0
+                or old.height() <= 0
+            )
+            # __init__ 直後など幅高さ0で set_pixmap すると極端な変換になり、
+            # 初回レイアウト後のピボット補正で描画が画面外に飛ぶ。無効→有効のときは作り直す。
+            if old_bad and self.width() > 0 and self.height() > 0:
+                self._reset_transform_to_fit()
+            else:
+                s_fit = self._s_fit()
+                min_s = s_fit * _ZOOM_MIN
+                max_s = s_fit * _ZOOM_MAX
+                old_scale = self._scale
+                self._scale = max(min_s, min(max_s, self._scale))
+                self._zoom_mul = self._scale / s_fit if s_fit > 0 else 1.0
+                cx = self.width() / 2.0
+                cy = self.height() / 2.0
+                ix = (cx - self._ox) / old_scale if old_scale > 0 else 0.0
+                iy = (cy - self._oy) / old_scale if old_scale > 0 else 0.0
+                self._ox = cx - ix * self._scale
+                self._oy = cy - iy * self._scale
         self.update()
         self.transform_changed.emit()
 
@@ -210,8 +267,14 @@ class ZoomPanImageViewport(QWidget):
         iw = self._iw * self._scale
         ih = self._ih * self._scale
         margin = 40.0
-        self._ox = min(max(self._ox, vp_w - iw - margin), margin)
-        self._oy = min(max(self._oy, vp_h - ih - margin), margin)
+        # 画像がビューより小さいとき vp - size - margin > margin となり、
+        # min(max(ox, 大), 小) だと常に小側に吸い付く（縦が上付きになる）ので端を正しく min/max する。
+        ox_lo = min(margin, vp_w - iw - margin)
+        ox_hi = max(margin, vp_w - iw - margin)
+        oy_lo = min(margin, vp_h - ih - margin)
+        oy_hi = max(margin, vp_h - ih - margin)
+        self._ox = min(max(self._ox, ox_lo), ox_hi)
+        self._oy = min(max(self._oy, oy_lo), oy_hi)
 
     def mousePressEvent(self, event: QMouseEvent) -> None:  # type: ignore[override]
         if event.button() == Qt.MouseButton.LeftButton:
@@ -245,3 +308,10 @@ class ZoomPanImageViewport(QWidget):
             event.accept()
             return
         super().mouseReleaseEvent(event)
+
+    def keyPressEvent(self, event: QKeyEvent) -> None:  # type: ignore[override]
+        if event.key() == Qt.Key.Key_Space:
+            self.reset_view()
+            event.accept()
+            return
+        super().keyPressEvent(event)

@@ -132,6 +132,40 @@ def _clip_rect_xywh(
     return (x0, y0, x1 - x0, y1 - y0)
 
 
+def diff_group_highlight_pairs(
+    base_bgr: np.ndarray,
+    template_bgr: np.ndarray,
+    best_xy: tuple[int, int],
+    offset_xy: tuple[int, int],
+    radius_px: int,
+    margin: int,
+) -> list[tuple[tuple[int, int, int, int], tuple[int, int, int, int]]]:
+    """
+    差分グループごとに、基準・比較の両方で有効な矩形ペアのみを返す。
+    各要素は ((bx, by, bw, bh), (vx, vy, vw, vh)) の画像座標。
+    """
+    mask, bx, by, tw, th = diff_mask_bool(
+        base_bgr, template_bgr, best_xy, offset_xy, margin
+    )
+    bh, bw = base_bgr.shape[:2]
+    padded_rects = _diff_group_rects_padded(mask, radius_px, DIFF_GROUP_RECT_PADDING_PX)
+    pairs: list[tuple[tuple[int, int, int, int], tuple[int, int, int, int]]] = []
+    for px, py, pw, ph in padded_rects:
+        b = _clip_rect_xywh(px - margin, py - margin, pw, ph, bw, bh)
+        vx0 = max(px, bx)
+        vy0 = max(py, by)
+        vx1 = min(px + pw, bx + tw)
+        vy1 = min(py + ph, by + th)
+        vw = vx1 - vx0
+        vh = vy1 - vy0
+        vr: tuple[int, int, int, int] | None = None
+        if vw > 0 and vh > 0:
+            vr = _clip_rect_xywh(vx0 - bx, vy0 - by, vw, vh, tw, th)
+        if b is not None and vr is not None:
+            pairs.append((b, vr))
+    return pairs
+
+
 def diff_group_rects_native(
     base_bgr: np.ndarray,
     template_bgr: np.ndarray,
@@ -144,29 +178,27 @@ def diff_group_rects_native(
     差分をモルフォロジーでつないだうえで連結成分ごとの外接矩形。
     基準画像座標・比較画像（テンプレート）座標の (x, y, w, h) を返す。
     矩形は最小外接より四辺 DIFF_GROUP_RECT_PADDING_PX 拡張（画像内にクリップ）。
+    基準・比較の両方が取れるグループのみを返す（インデックスは対応する）。
     """
-    mask, bx, by, tw, th = diff_mask_bool(
-        base_bgr, template_bgr, best_xy, offset_xy, margin
+    ps = diff_group_highlight_pairs(
+        base_bgr, template_bgr, best_xy, offset_xy, radius_px, margin
     )
-    bh, bw = base_bgr.shape[:2]
-    padded_rects = _diff_group_rects_padded(mask, radius_px, DIFF_GROUP_RECT_PADDING_PX)
-    base_rects: list[tuple[int, int, int, int]] = []
-    variant_rects: list[tuple[int, int, int, int]] = []
-    for px, py, pw, ph in padded_rects:
-        b = _clip_rect_xywh(px - margin, py - margin, pw, ph, bw, bh)
-        if b is not None:
-            base_rects.append(b)
-        vx0 = max(px, bx)
-        vy0 = max(py, by)
-        vx1 = min(px + pw, bx + tw)
-        vy1 = min(py + ph, by + th)
-        vw = vx1 - vx0
-        vh = vy1 - vy0
-        if vw > 0 and vh > 0:
-            vr = _clip_rect_xywh(vx0 - bx, vy0 - by, vw, vh, tw, th)
-            if vr is not None:
-                variant_rects.append(vr)
-    return base_rects, variant_rects
+    return [p[0] for p in ps], [p[1] for p in ps]
+
+
+def crop_bgr_xywh(
+    bgr: np.ndarray, rect_xywh: tuple[int, int, int, int]
+) -> np.ndarray:
+    """BGR 画像から矩形 (x, y, w, h) を切り出し（コピー）。"""
+    x, y, w, h = rect_xywh
+    h0, w0 = bgr.shape[:2]
+    x = max(0, min(int(x), max(0, w0 - 1)))
+    y = max(0, min(int(y), max(0, h0 - 1)))
+    w = max(1, int(w))
+    h = max(1, int(h))
+    x1 = min(w0, x + w)
+    y1 = min(h0, y + h)
+    return bgr[y:y1, x:x1].copy()
 
 
 def _diff_group_rects_padded(
